@@ -1,0 +1,12 @@
+gradio
+transformers
+torch
+spaces
+pillow
+requests
+numpy
+timm 
+einops 
+optimum
+accelerate
+opencv-python
