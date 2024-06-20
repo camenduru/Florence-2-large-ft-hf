@@ -186,6 +186,31 @@ with gr.Blocks(css=css) as demo:
                     label="Task", value="Caption"
                 )
                 text_input = gr.Textbox(label="Text Input (is Optional)", visible=False)
+                gr.Examples(
+                    examples=[
+                        [
+                            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true",
+                            "Detailed Caption",
+                            "",
+                        ],
+                        [
+                            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true",
+                            "Object Detection",
+                            "",
+                        ],
+                        [
+                            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true",
+                            "Caption to Phrase Grounding",
+                            "A green car parked in front of a yellow building."
+                        ],
+                        [
+                            "https://datasets-server.huggingface.co/assets/huggingface/documentation-images/--/566a43334e8b6331dddd8142495bc2f3209f32b0/--/default/validation/3/image/image.jpg?Expires=1718892641&Signature=GFpkyFBNrVf~Mq0jFjbpXWQLCOQblOm6Y1R57zl0tZOKWg5lfK8Jv1Tkxv35sMOARYDiJEE7C0hIp0fKazo1lYbv0ZTAKkwHUY2RroifVea4JRCyovJVptsmIZnlXkJU68N7bJhh8K07cu04G5mqaLRRehqDABKqEqgIdtBS5WcUXdoqkl0Fh2c8KN3GK9hZba9E6ZouBXhuffEEzykss1pIm6MW-WLx5l7~RXKu6BwcFq~6--3KoYVM4U~aEQdgTJg6P2ESH4DkEWN8Qpf~vaHBi2CZQSGurM1U0sZqIYrSLPaUov1h00MQMmnNEzMDZUeIq7~j07hVmwWgflQZeA__&Key-Pair-Id=K3EI6M078Z3AC3",
+                            "OCR",
+                            ""
+                        ]
+                    ],
+                    inputs=[input_image, task_dropdown, text_input],
+                )
                 submit_btn = gr.Button(value="Submit")
             with gr.Column():
                 output_text = gr.Textbox(label="Results")
