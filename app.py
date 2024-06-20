@@ -209,7 +209,7 @@ with gr.Blocks(css=css) as demo:
                             ""
                         ]
                     ],
-                    inputs=[input_image, task_dropdown, text_input],
+                    inputs=[input_img, task_dropdown, text_input],
                 )
                 submit_btn = gr.Button(value="Submit")
             with gr.Column():
