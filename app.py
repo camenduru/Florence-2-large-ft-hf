@@ -79,11 +79,9 @@ def draw_polygons(image, prediction, fill_mask=False):
         for _polygon in polygons:
             _polygon = np.array(_polygon).reshape(-1, 2)
             if _polygon.shape[0] < 3:
-                print('Invalid polygon:', _polygon)
                 continue
             _polygon = (_polygon * scale).reshape(-1).tolist()
             if len(_polygon) % 2 != 0:
-                print('Invalid polygon:', _polygon)
                 continue
             polygon_points = np.array(_polygon).reshape(-1, 2)
             if fill_mask:
@@ -102,10 +100,12 @@ def draw_ocr_bboxes(image, prediction):
     bboxes, labels = prediction['quad_boxes'], prediction['labels']
     for box, label in zip(bboxes, labels):
         color = random.choice(colormap)
-        new_box = (np.array(box) * scale).tolist()
+        new_box = np.array(box) * scale
+        if new_box.ndim == 1:
+            new_box = new_box.reshape(-1, 2)
         polygon = patches.Polygon(new_box, edgecolor=color, fill=False, linewidth=3)
         ax.add_patch(polygon)
-        plt.text(new_box[0], new_box[1], label, color='white', fontsize=8, bbox=dict(facecolor=color, alpha=0.5))
+        plt.text(new_box[0, 0], new_box[0, 1], label, color='white', fontsize=8, bbox=dict(facecolor=color, alpha=0.5))
     ax.axis('off')
     return fig_to_pil(fig)
 
@@ -114,15 +114,25 @@ def draw_ocr_bboxes(image, prediction):
 def process_video(input_video_path, task_prompt):
     cap = cv2.VideoCapture(input_video_path)
     if not cap.isOpened():
-        print("Error: Can't open the video file.")
-        return
+        return None
 
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if frame_width <= 0 or frame_height <= 0 or fps <= 0 or total_frames <= 0:
+        cap.release()
+        return None
+
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter("output_vid.mp4", fourcc, fps, (frame_width, frame_height))
 
+    if not out.isOpened():
+        cap.release()
+        return None
+
+    processed_frames = 0
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -133,19 +143,25 @@ def process_video(input_video_path, task_prompt):
 
         result = run_example(task_prompt, pil_image)
 
+        processed_image = pil_image
         if task_prompt == "<OD>":
-            processed_image = plot_bbox(pil_image, result['<OD>'])
+            if "<OD>" in result and "bboxes" in result["<OD>"] and "labels" in result["<OD>"]:
+                processed_image = plot_bbox(pil_image, result['<OD>'])
         elif task_prompt == "<DENSE_REGION_CAPTION>":
-            processed_image = plot_bbox(pil_image, result['<DENSE_REGION_CAPTION>'])
-        else:
-            processed_image = pil_image
+            if "<DENSE_REGION_CAPTION>" in result and "polygons" in result["<DENSE_REGION_CAPTION>"] and "labels" in result["<DENSE_REGION_CAPTION>"]:
+                processed_image = draw_polygons(pil_image, result['<DENSE_REGION_CAPTION>'], fill_mask=True)
 
         processed_frame = cv2.cvtColor(np.array(processed_image), cv2.COLOR_RGB2BGR)
         out.write(processed_frame)
+        processed_frames += 1
 
     cap.release()
     out.release()
     cv2.destroyAllWindows()
+
+    if processed_frames == 0:
+        return None
+
     return "output_vid.mp4"
 
 css = """
@@ -162,11 +178,11 @@ with gr.Blocks(css=css) as demo:
         with gr.Row():
             with gr.Column():
                 input_img = gr.Image(label="Input Picture", type="pil")
-                task_radio = gr.Radio(
-                    ["Caption", "Detailed Caption", "More Detailed Caption", "Caption to Phrase Grounding",
-                     "Object Detection", "Dense Region Caption", "Region Proposal", "Referring Expression Segmentation",
-                     "Region to Segmentation", "Open Vocabulary Detection", "Region to Category", "Region to Description",
-                     "OCR", "OCR with Region"],
+                task_dropdown = gr.Dropdown(
+                    choices=["Caption", "Detailed Caption", "More Detailed Caption", "Caption to Phrase Grounding",
+                             "Object Detection", "Dense Region Caption", "Region Proposal", "Referring Expression Segmentation",
+                             "Region to Segmentation", "Open Vocabulary Detection", "Region to Category", "Region to Description",
+                             "OCR", "OCR with Region"],
                     label="Task", value="Caption"
                 )
                 text_input = gr.Textbox(label="Text Input (is Optional)", visible=False)
@@ -179,8 +195,8 @@ with gr.Blocks(css=css) as demo:
         with gr.Row():
             with gr.Column():
                 input_video = gr.Video(label="Video")
-                video_task_radio = gr.Radio(
-                    ["Object Detection", "Dense Region Caption"],
+                video_task_dropdown = gr.Dropdown(
+                    choices=["Object Detection", "Dense Region Caption"],
                     label="Video Task", value="Object Detection"
                 )
                 video_submit_btn = gr.Button(value="Process Video")
@@ -192,7 +208,7 @@ with gr.Blocks(css=css) as demo:
                                            "Region to Segmentation", "Open Vocabulary Detection", "Region to Category",
                                            "Region to Description"])
 
-    task_radio.change(fn=update_text_input, inputs=task_radio, outputs=text_input)
+    task_dropdown.change(fn=update_text_input, inputs=task_dropdown, outputs=text_input)
 
     def process_image(image, task, text):
         task_mapping = {
@@ -219,7 +235,7 @@ with gr.Blocks(css=css) as demo:
         else:
             return "", image
 
-    submit_btn.click(fn=process_image, inputs=[input_img, task_radio, text_input], outputs=[output_text, output_image])
-    video_submit_btn.click(fn=process_video, inputs=[input_video, video_task_radio], outputs=output_video)
+    submit_btn.click(fn=process_image, inputs=[input_img, task_dropdown, text_input], outputs=[output_text, output_image])
+    video_submit_btn.click(fn=process_video, inputs=[input_video, video_task_dropdown], outputs=output_video)
 
 demo.launch()
