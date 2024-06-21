@@ -101,7 +101,7 @@ def plot_bbox(image, data):
         draw.text((x1, y1), label, fill="white")
     return np.array(img_draw)
 
-@spaces.GPU(duration=120)
+@spaces.GPU(duration=130) #remains to be seen, increasing too much may leave people queueing for long
 def process_video(input_video_path, task_prompt):
     cap = cv2.VideoCapture(input_video_path)
     if not cap.isOpened():
