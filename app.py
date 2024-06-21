@@ -14,7 +14,6 @@ import cv2
 import io
 import uuid
 
-
 def workaround_fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     if not str(filename).endswith("/modeling_florence2.py"):
         return get_imports(filename)
@@ -39,6 +38,60 @@ def run_example(task_prompt, image, text_input=None):
     generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     return processor.post_process_generation(generated_text, task=task_prompt, image_size=(image.size[0], image.size[1]))
 
+def fig_to_pil(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    buf.seek(0)
+    return Image.open(buf)
+
+def plot_bbox_img(image, data):
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(image)
+    
+    if 'bboxes' in data and 'labels' in data:
+        bboxes, labels = data['bboxes'], data['labels']
+    elif 'bboxes' in data and 'bboxes_labels' in data:
+        bboxes, labels = data['bboxes'], data['bboxes_labels']
+    else:
+        return fig_to_pil(fig)
+
+    for bbox, label in zip(bboxes, labels):
+        x1, y1, x2, y2 = bbox
+        rect = patches.Rectangle((x1, y1), x2-x1, y2-y1, linewidth=2, edgecolor='indigo', facecolor='none')
+        ax.add_patch(rect)
+        plt.text(x1, y1, label, color='white', fontsize=10, bbox=dict(facecolor='indigo', alpha=0.8))
+    
+    ax.axis('off')
+    return fig_to_pil(fig)
+
+def draw_poly_img(image, prediction, fill_mask=False):
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(image)
+    for polygons, label in zip(prediction.get('polygons', []), prediction.get('labels', [])):
+        color = random.choice(colormap)
+        for polygon in polygons:
+            if isinstance(polygon[0], (int, float)):
+                polygon = [(polygon[i], polygon[i+1]) for i in range(0, len(polygon), 2)]
+            poly = patches.Polygon(polygon, edgecolor=color, facecolor=color if fill_mask else 'none', alpha=0.5 if fill_mask else 1, linewidth=2)
+            ax.add_patch(poly)
+        if polygon:
+            plt.text(polygon[0][0], polygon[0][1], label, color='white', fontsize=10, bbox=dict(facecolor=color, alpha=0.8))
+    ax.axis('off')
+    return fig_to_pil(fig)
+
+def draw_ocr_bboxes(image, prediction):
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(image)
+    bboxes, labels = prediction['quad_boxes'], prediction['labels']
+    for box, label in zip(bboxes, labels):
+        color = random.choice(colormap)
+        box_array = np.array(box).reshape(-1, 2)  # respect format
+        polygon = patches.Polygon(box_array, edgecolor=color, fill=False, linewidth=2)
+        ax.add_patch(polygon)
+        plt.text(box_array[0, 0], box_array[0, 1], label, color='white', fontsize=10, bbox=dict(facecolor=color, alpha=0.8))
+    ax.axis('off')
+    return fig_to_pil(fig)
+
 def plot_bbox(image, data):
     img_draw = image.copy()
     draw = ImageDraw.Draw(img_draw)
@@ -46,19 +99,6 @@ def plot_bbox(image, data):
         x1, y1, x2, y2 = bbox
         draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
         draw.text((x1, y1), label, fill="white")
-    return np.array(img_draw)
-
-def draw_polygons(image, prediction, fill_mask=False):
-    img_draw = image.copy()
-    draw = ImageDraw.Draw(img_draw)
-    for polygons, label in zip(prediction.get('polygons', []), prediction.get('labels', [])):
-        color = random.choice(colormap)
-        for polygon in polygons:
-            if isinstance(polygon[0], (int, float)):
-                polygon = [(polygon[i], polygon[i+1]) for i in range(0, len(polygon), 2)]
-            draw.polygon(polygon, outline=color, fill=color if fill_mask else None)
-        if polygon:
-            draw.text(polygon[0], label, fill="white")
     return np.array(img_draw)
 
 @spaces.GPU(duration=120)
@@ -151,17 +191,17 @@ def process_image(image, task, text):
         "Caption": ("<CAPTION>", lambda result: (result['<CAPTION>'], image)),
         "Detailed Caption": ("<DETAILED_CAPTION>", lambda result: (result['<DETAILED_CAPTION>'], image)),
         "More Detailed Caption": ("<MORE_DETAILED_CAPTION>", lambda result: (result['<MORE_DETAILED_CAPTION>'], image)),
-        "Caption to Phrase Grounding": ("<CAPTION_TO_PHRASE_GROUNDING>", lambda result: (str(result['<CAPTION_TO_PHRASE_GROUNDING>']), Image.fromarray(plot_bbox(image, result['<CAPTION_TO_PHRASE_GROUNDING>'])))),
-        "Object Detection": ("<OD>", lambda result: (str(result['<OD>']), Image.fromarray(plot_bbox(image, result['<OD>'])))),
-        "Dense Region Caption": ("<DENSE_REGION_CAPTION>", lambda result: (str(result['<DENSE_REGION_CAPTION>']), Image.fromarray(draw_polygons(image, result['<DENSE_REGION_CAPTION>'], fill_mask=True)))),
-        "Region Proposal": ("<REGION_PROPOSAL>", lambda result: (str(result['<REGION_PROPOSAL>']), Image.fromarray(plot_bbox(image, result['<REGION_PROPOSAL>'])))),
-        "Referring Expression Segmentation": ("<REFERRING_EXPRESSION_SEGMENTATION>", lambda result: (str(result['<REFERRING_EXPRESSION_SEGMENTATION>']), Image.fromarray(draw_polygons(image, result['<REFERRING_EXPRESSION_SEGMENTATION>'], fill_mask=True)))),
-        "Region to Segmentation": ("<REGION_TO_SEGMENTATION>", lambda result: (str(result['<REGION_TO_SEGMENTATION>']), Image.fromarray(draw_polygons(image, result['<REGION_TO_SEGMENTATION>'], fill_mask=True)))),
-        "Open Vocabulary Detection": ("<OPEN_VOCABULARY_DETECTION>", lambda result: (str(result['<OPEN_VOCABULARY_DETECTION>']), Image.fromarray(plot_bbox(image, result['<OPEN_VOCABULARY_DETECTION>'])))),
+        "Caption to Phrase Grounding": ("<CAPTION_TO_PHRASE_GROUNDING>", lambda result: (str(result['<CAPTION_TO_PHRASE_GROUNDING>']), plot_bbox_img(image, result['<CAPTION_TO_PHRASE_GROUNDING>']))),
+        "Object Detection": ("<OD>", lambda result: (str(result['<OD>']), plot_bbox_img(image, result['<OD>']))),
+        "Dense Region Caption": ("<DENSE_REGION_CAPTION>", lambda result: (str(result['<DENSE_REGION_CAPTION>']), plot_bbox_img(image, result['<DENSE_REGION_CAPTION>']))),
+        "Region Proposal": ("<REGION_PROPOSAL>", lambda result: (str(result['<REGION_PROPOSAL>']), plot_bbox_img(image, result['<REGION_PROPOSAL>']))),
+        "Referring Expression Segmentation": ("<REFERRING_EXPRESSION_SEGMENTATION>", lambda result: (str(result['<REFERRING_EXPRESSION_SEGMENTATION>']), draw_poly_img(image, result['<REFERRING_EXPRESSION_SEGMENTATION>'], fill_mask=True))),
+        "Region to Segmentation": ("<REGION_TO_SEGMENTATION>", lambda result: (str(result['<REGION_TO_SEGMENTATION>']), draw_poly_img(image, result['<REGION_TO_SEGMENTATION>'], fill_mask=True))),
+        "Open Vocabulary Detection": ("<OPEN_VOCABULARY_DETECTION>", lambda result: (str(result['<OPEN_VOCABULARY_DETECTION>']), plot_bbox_img(image, result['<OPEN_VOCABULARY_DETECTION>']))),
         "Region to Category": ("<REGION_TO_CATEGORY>", lambda result: (result['<REGION_TO_CATEGORY>'], image)),
         "Region to Description": ("<REGION_TO_DESCRIPTION>", lambda result: (result['<REGION_TO_DESCRIPTION>'], image)),
         "OCR": ("<OCR>", lambda result: (result['<OCR>'], image)),
-        "OCR with Region": ("<OCR_WITH_REGION>", lambda result: (str(result['<OCR_WITH_REGION>']), Image.fromarray(plot_bbox(image, result['<OCR_WITH_REGION>'])))),
+        "OCR with Region": ("<OCR_WITH_REGION>", lambda result: (str(result['<OCR_WITH_REGION>']), draw_ocr_bboxes(image, result['<OCR_WITH_REGION>']))),
     }
 
     if task in task_mapping:
@@ -222,7 +262,7 @@ with gr.Blocks() as demo:
                             "A green car parked in front of a yellow building."
                         ],
                         [
-                            "https://datasets-server.huggingface.co/assets/huggingface/documentation-images/--/566a43334e8b6331dddd8142495bc2f3209f32b0/--/default/validation/3/image/image.jpg?Expires=1718892641&Signature=GFpkyFBNrVf~Mq0jFjbpXWQLCOQblOm6Y1R57zl0tZOKWg5lfK8Jv1Tkxv35sMOARYDiJEE7C0hIp0fKazo1lYbv0ZTAKkwHUY2RroifVea4JRCyovJVptsmIZnlXkJU68N7bJhh8K07cu04G5mqaLRRehqDABKqEqgIdtBS5WcUXdoqkl0Fh2c8KN3GK9hZba9E6ZouBXhuffEEzykss1pIm6MW-WLx5l7~RXKu6BwcFq~6--3KoYVM4U~aEQdgTJg6P2ESH4DkEWN8Qpf~vaHBi2CZQSGurM1U0sZqIYrSLPaUov1h00MQMmnNEzMDZUeIq7~j07hVmwWgflQZeA__&Key-Pair-Id=K3EI6M078Z3AC3",
+                            "http://ecx.images-amazon.com/images/I/51UUzBDAMsL.jpg?download=true",
                             "OCR",
                             ""
                         ]
